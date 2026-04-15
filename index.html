@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心语·Windows 弹窗特效</title>
+    <style>
+        /* ========== 全局样式重置 ========== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* ========== 页面主体样式 ========== */
+        body {
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #1a0a2e 0%, #16213e 50%, #0f0f23 100%);
+            /* 深紫色到黑色的渐变背景 */
+        }
+
+        /* ========== Canvas 画布样式 ========== */
+        #windowCanvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        /* ========== 重置按钮样式 ========== */
+        .reset-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+
+        .reset-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.9);
+        }
+    </style>
+</head>
+<body>
+    <!-- 主画布 -->
+    <canvas id="windowCanvas"></canvas>
+    
+    <!-- 重置按钮 -->
+    <button class="reset-btn" id="resetBtn">点击此处重新开始</button>
+
+    <script>
+        /**
+         * ========================================
+         * 心语·Windows 弹窗特效 - 核心逻辑
+         * ========================================
+         * 
+         * 动画流程：
+         * 1. 启动提示：显示"双击屏幕开始"
+         * 2. 双击触发：提示框消失，动画开始
+         * 3. 沿爱心轨迹逐个生成弹窗
+         * 4. 形成完整爱心并停留
+         * 5. 爱心淡出
+         * 6. 满屏散落弹窗（每次生成3个）
+         * 7. 结束时所有弹窗淡出，显示"感谢观看"
+         */
+
+        // ========== 全局配置参数 ==========
+        const CONFIG = {
+            // 弹窗配置
+            window: {
+                width: 150,              // 弹窗宽度
+                height: 100,             // 弹窗高度
+                titleBarHeight: 30,      // 标题栏高度
+                borderRadius: 10,        // 圆角半径
+                shadowBlur: 15,          // 阴影模糊
+                shadowColor: 'rgba(0, 0, 0, 0.3)',
+            },
+            
+            // 爱心轨迹配置
+            heart: {
+                scale: 0.025,            // 缩放因子
+                windowCount: 40,         // 弹窗数量（30-50）
+                spawnInterval: 120,      // 生成间隔（毫秒，0.1-0.15秒）
+            },
+            
+            // 动画时间配置
+            timing: {
+                holdingDuration: 1800,   // 停留时间（1.8秒）
+                fadeOutDuration: 600,    // 淡出时间（0.6秒）
+                scatterInterval: 200,    // 散落生成间隔（每次生成3个弹窗）
+                scatterDuration: 11000,  // 散落阶段持续时间（10-12秒）
+                windowLifeStay: 300,     // 散落弹窗停留时间（0.3秒）
+                windowLifeFade: 500,     // 散落弹窗淡出时间（0.5秒）
+            },
+            
+            // 散落弹窗配置
+            scatter: {
+                maxCount: 50,            // 最大同时存在弹窗数量
+            },
+            
+            // 祝福与关心话语词库
+            phrases: [
+                // 祝福类
+                "平安喜乐", "万事顺遂", "得偿所愿", "前程似锦", "未来可期",
+                "岁岁常欢愉", "年年皆胜意", "人间值得", "温柔坚定", "爱与被爱",
+                "不负韶华", "保持热爱", "奔赴山海", "好运莲莲", "心想事成",
+                "大吉大利", "万事胜意", "皆得所愿", "星河长明", "日光温和",
+                "山高水长", "来日可期", "顺问冬安", "浅喜暖望", "长乐未央",
+                
+                // 关心类
+                "注意休息", "记得吃饭", "多喝热水", "早点睡觉", "别太累了",
+                "照顾好自己", "天冷加衣", "出门带伞", "路上小心", "别熬夜啦",
+                "按时吃饭", "好好爱自己", "累了就歇歇", "别硬撑", "身体要紧",
+                "记得吃早餐", "少喝冰的", "空调别开太低", "多起来走动", "眼睛该休息了",
+                
+                // 鼓励与温暖类
+                "今天开心吗", "你值得被爱", "要天天开心", "一切都会好的",
+                "相信自己", "你真的很棒", "你已经做得很好了", "慢慢来",
+                "别着急", "没关系", "有我在", "我在呢", "抱抱你",
+                "辛苦啦", "今天也辛苦了", "为你骄傲", "你是最棒的",
+                "别怀疑自己", "你超可爱的", "好运正在派送", "明天会更好",
+                
+                // 简短治愈句
+                "乖，摸摸头", "你很重要", "别怕", "会好的", "没关系啦",
+                "笑一个吧", "今天也要加油呀", "你是被爱着的", "世界和我爱着你"
+            ],
+            
+            // 颜色方案
+            colors: {
+                titleBar: '#f0f0f0',     // 标题栏背景色
+                clientArea: '#fff0f5',   // 主体区域背景色（浅粉色）
+                clientAreaAlt: ['#fff0f5', '#fffacd', '#f5f0ff'], // 主体区域颜色选项
+                text: '#333333',         // 文字颜色
+                titleText: '#555555',    // 标题文字颜色
+                border: '#cccccc',       // 边框颜色
+            }
+        };
+
+        // ========== Canvas 初始化 ==========
+        const canvas = document.getElementById('windowCanvas');
+        const ctx = canvas.getContext('2d');
+
+        /**
+         * 调整 Canvas 尺寸以适应窗口
+         */
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // ========== 工具函数 ==========
+
+        /**
+         * 生成指定范围内的随机数
+         */
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        /**
+         * 随机选择数组元素
+         */
+        function randomChoice(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        // ========== 爱心形状坐标计算 ==========
+
+        /**
+         * 使用心形参数方程计算爱心轮廓上的点
+         * 
+         * 参数方程：
+         * x = 16 * sin³(t)
+         * y = 13 * cos(t) - 5 * cos(2t) - 2 * cos(3t) - cos(4t)
+         * 
+         * @param {number} t - 参数值（0 到 2π）
+         * @returns {object} - {x, y} 坐标
+         */
+        function heartShape(t) {
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+            return { x, y };
+        }
+
+        /**
+         * 计算爱心轨迹上的采样点
+         * @returns {Array} - 轨迹点数组
+         */
+        function calculateHeartTrajectory() {
+            const points = [];
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2 - 20;
+            const scale = Math.min(canvas.width, canvas.height) * CONFIG.heart.scale;
+            
+            // 从底部尖角（t = PI）开始，顺时针方向
+            const startT = Math.PI;
+            const count = CONFIG.heart.windowCount;
+            
+            for (let i = 0; i < count; i++) {
+                // 顺时针方向：t 从 PI 递增到 PI + 2π
+                const t = startT + (i / count) * Math.PI * 2;
+                const point = heartShape(t);
+                
+                points.push({
+                    x: centerX + point.x * scale,
+                    y: centerY + point.y * scale
+                });
+            }
+            
+            return points;
+        }
+
+        // ========== 弹窗绘制核心函数 ==========
+
+        /**
+         * 绘制仿 Windows 系统窗口样式的圆角矩形弹窗
+         * 
+         * @param {number} x - 弹窗中心 x 坐标
+         * @param {number} y - 弹窗中心 y 坐标
+         * @param {string} text - 主体区域显示的文字
+         * @param {number} opacity - 透明度（0-1）
+         * @param {number} scale - 缩放比例
+         */
+        function drawWindow(x, y, text, opacity = 1, scale = 1) {
+            ctx.save();
+            
+            // 应用透明度
+            ctx.globalAlpha = opacity;
+            
+            // 弹窗尺寸
+            const width = CONFIG.window.width * scale;
+            const height = CONFIG.window.height * scale;
+            const titleBarHeight = CONFIG.window.titleBarHeight * scale;
+            const borderRadius = CONFIG.window.borderRadius * scale;
+            
+            // 弹窗左上角坐标（中心点转换）
+            const left = x - width / 2;
+            const top = y - height / 2;
+            
+            // 设置阴影
+            ctx.shadowColor = CONFIG.window.shadowColor;
+            ctx.shadowBlur = CONFIG.window.shadowBlur * scale;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 5 * scale;
+            
+            // ========== 绘制主体区域（圆角矩形）==========
+            ctx.beginPath();
+            ctx.roundRect(left, top, width, height, borderRadius);
+            
+            // 随机选择主体区域背景色
+            const clientColor = randomChoice(CONFIG.colors.clientAreaAlt);
+            ctx.fillStyle = clientColor;
+            ctx.fill();
+            
+            // 绘制边框
+            ctx.strokeStyle = CONFIG.colors.border;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // 清除阴影（标题栏不需要额外阴影）
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            
+            // ========== 绘制标题栏 ==========
+            ctx.beginPath();
+            ctx.roundRect(left, top, width, titleBarHeight, [borderRadius, borderRadius, 0, 0]);
+            ctx.fillStyle = CONFIG.colors.titleBar;
+            ctx.fill();
+            
+            // 绘制标题栏下边框
+            ctx.beginPath();
+            ctx.moveTo(left, top + titleBarHeight);
+            ctx.lineTo(left + width, top + titleBarHeight);
+            ctx.strokeStyle = '#d0d0d0';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // ========== 绘制窗口图标（左上角）==========
+            const iconX = left + 10 * scale;
+            const iconY = top + titleBarHeight / 2;
+            ctx.font = `${12 * scale}px Arial`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('❤️', iconX, iconY);
+            
+            // ========== 绘制标题文字 ==========
+            const titleX = left + 30 * scale;
+            ctx.font = `bold ${11 * scale}px 'PingFang SC', 'Microsoft YaHei', sans-serif`;
+            ctx.fillStyle = CONFIG.colors.titleText;
+            ctx.fillText('心语', titleX, iconY);
+            
+            // ========== 绘制窗口控制按钮（右上角）==========
+            const btnSize = 12 * scale;
+            const btnY = top + titleBarHeight / 2;
+            const btnStartX = left + width - 10 * scale - btnSize * 3 - 10 * scale;
+            
+            // 最小化按钮
+            ctx.strokeStyle = '#666666';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(btnStartX, btnY);
+            ctx.lineTo(btnStartX + btnSize, btnY);
+            ctx.stroke();
+            
+            // 最大化按钮
+            const maxBtnX = btnStartX + btnSize + 5 * scale;
+            ctx.strokeRect(maxBtnX, btnY - btnSize / 2, btnSize, btnSize);
+            
+            // 关闭按钮
+            const closeBtnX = maxBtnX + btnSize + 5 * scale;
+            ctx.strokeStyle = '#cc4444';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(closeBtnX, btnY - btnSize / 2);
+            ctx.lineTo(closeBtnX + btnSize, btnY + btnSize / 2);
+            ctx.moveTo(closeBtnX + btnSize, btnY - btnSize / 2);
+            ctx.lineTo(closeBtnX, btnY + btnSize / 2);
+            ctx.stroke();
+            
+            // ========== 绘制主体区域文字 ==========
+            const textX = x;
+            const textY = top + titleBarHeight + (height - titleBarHeight) / 2;
+            
+            ctx.font = `bold ${14 * scale}px 'PingFang SC', 'Microsoft YaHei', sans-serif`;
+            ctx.fillStyle = CONFIG.colors.text;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, textX, textY);
+            
+            ctx.restore();
+        }
+
+        // ========== 弹窗类定义 ==========
+
+        /**
+         * 弹窗类
+         */
+        class WindowPopup {
+            constructor(x, y, text, options = {}) {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.opacity = options.opacity || 1;
+                this.scale = options.scale || 0.8; // 初始缩放（弹出动画）
+                this.targetScale = options.targetScale || 1;
+                this.state = options.state || 'appearing'; // appearing, holding, fading, dead
+                this.birthTime = options.birthTime || performance.now();
+                this.fadeStartTime = null;
+            }
+
+            /**
+             * 更新弹窗状态
+             */
+            update(currentTime) {
+                switch (this.state) {
+                    case 'appearing':
+                        // 弹出动画：缩放从 0.8 到 1.0
+                        this.scale += (this.targetScale - this.scale) * 0.15;
+                        if (Math.abs(this.scale - this.targetScale) < 0.01) {
+                            this.scale = this.targetScale;
+                            this.state = 'holding';
+                        }
+                        break;
+                        
+                    case 'holding':
+                        // 保持静止
+                        break;
+                        
+                    case 'fading':
+                        // 淡出
+                        if (!this.fadeStartTime) {
+                            this.fadeStartTime = currentTime;
+                        }
+                        const fadeElapsed = currentTime - this.fadeStartTime;
+                        const fadeProgress = fadeElapsed / CONFIG.timing.windowLifeFade;
+                        this.opacity = Math.max(0, 1 - fadeProgress);
+                        
+                        if (this.opacity <= 0) {
+                            this.state = 'dead';
+                        }
+                        break;
+                }
+            }
+
+            /**
+             * 绘制弹窗
+             */
+            draw() {
+                if (this.state === 'dead' || this.opacity <= 0) return;
+                drawWindow(this.x, this.y, this.text, this.opacity, this.scale);
+            }
+
+            /**
+             * 开始淡出
+             */
+            startFade() {
+                this.state = 'fading';
+            }
+        }
+
+        // ========== 动画状态机 ==========
+
+        let animationState = 'waiting'; // waiting, forming, holding, fading, scattering, ended
+        let stateStartTime = 0;
+        let heartWindows = []; // 爱心弹窗数组
+        let scatterWindows = []; // 散落弹窗数组
+        let heartTrajectory = []; // 爱心轨迹点
+        let currentTrajectoryIndex = 0; // 当前轨迹索引
+        let lastSpawnTime = 0;
+        let totalElapsedTime = 0;
+        let animationStartTime = 0;
+
+        /**
+         * 绘制启动提示框
+         */
+        function drawStartPrompt() {
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            
+            ctx.save();
+            
+            // 绘制半透明深色圆角矩形
+            const width = 320;
+            const height = 150;
+            const borderRadius = 15;
+            
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 20;
+            
+            ctx.beginPath();
+            ctx.roundRect(centerX - width / 2, centerY - height / 2, width, height, borderRadius);
+            ctx.fillStyle = 'rgba(20, 20, 40, 0.85)';
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // 绘制主文字
+            ctx.shadowBlur = 0;
+            ctx.font = "bold 28px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillStyle = '#FFFFFF';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('双击屏幕开始 ❤️', centerX, centerY - 20);
+            
+            // 绘制副文字
+            ctx.font = "16px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText('心之所向 行之所至', centerX, centerY + 25);
+            
+            ctx.restore();
+        }
+
+        /**
+         * 初始化爱心轨迹
+         */
+        function initHeartTrajectory() {
+            heartTrajectory = calculateHeartTrajectory();
+            currentTrajectoryIndex = 0;
+            heartWindows = [];
+        }
+
+        /**
+         * 生成爱心弹窗
+         */
+        function spawnHeartWindow(currentTime) {
+            if (currentTrajectoryIndex >= heartTrajectory.length) {
+                return false; // 所有弹窗已生成完毕
+            }
+            
+            const point = heartTrajectory[currentTrajectoryIndex];
+            const text = randomChoice(CONFIG.phrases);
+            
+            const window = new WindowPopup(point.x, point.y, text, {
+                birthTime: currentTime
+            });
+            
+            heartWindows.push(window);
+            currentTrajectoryIndex++;
+            
+            return true;
+        }
+
+        /**
+         * 生成散落弹窗
+         */
+        function spawnScatterWindow(x, y, currentTime) {
+            if (scatterWindows.filter(w => w.state !== 'dead').length >= CONFIG.scatter.maxCount) {
+                return; // 达到上限
+            }
+            
+            const posX = x !== undefined ? x : random(100, canvas.width - 100);
+            const posY = y !== undefined ? y : random(100, canvas.height - 100);
+            const text = randomChoice(CONFIG.phrases);
+            
+            const window = new WindowPopup(posX, posY, text, {
+                birthTime: currentTime,
+                scale: 0.5,
+                targetScale: 1
+            });
+            
+            scatterWindows.push(window);
+        }
+
+        /**
+         * 重置动画状态
+         */
+        function resetAnimation() {
+            animationState = 'waiting';
+            stateStartTime = 0;
+            heartWindows = [];
+            scatterWindows = [];
+            heartTrajectory = [];
+            currentTrajectoryIndex = 0;
+            lastSpawnTime = 0;
+            totalElapsedTime = 0;
+            animationStartTime = 0;
+        }
+
+        // ========== 事件监听 ==========
+
+        /**
+         * 双击事件监听
+         */
+        canvas.addEventListener('dblclick', (e) => {
+            if (animationState === 'waiting') {
+                // 开始动画
+                animationState = 'forming';
+                stateStartTime = performance.now();
+                animationStartTime = performance.now();
+                initHeartTrajectory();
+                lastSpawnTime = performance.now();
+            }
+        });
+
+        /**
+         * 点击事件监听（散落阶段生成弹窗）
+         */
+        canvas.addEventListener('click', (e) => {
+            if (animationState === 'scattering') {
+                spawnScatterWindow(e.clientX, e.clientY, performance.now());
+            }
+        });
+
+        /**
+         * 重置按钮事件
+         */
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            resetAnimation();
+        });
+
+        // ========== 主动画循环 ==========
+
+        /**
+         * 主动画循环
+         */
+        function animate(timestamp) {
+            // 清空画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制背景渐变
+            const bgGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            bgGradient.addColorStop(0, '#1a0a2e');
+            bgGradient.addColorStop(0.5, '#16213e');
+            bgGradient.addColorStop(1, '#0f0f23');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 状态机更新
+            if (animationState !== 'waiting') {
+                totalElapsedTime = timestamp - animationStartTime;
+            }
+            
+            switch (animationState) {
+                case 'waiting':
+                    // 显示启动提示
+                    drawStartPrompt();
+                    break;
+                    
+                case 'forming':
+                    // 沿爱心轨迹生成弹窗
+                    if (timestamp - lastSpawnTime >= CONFIG.heart.spawnInterval) {
+                        spawnHeartWindow(timestamp);
+                        lastSpawnTime = timestamp;
+                    }
+                    
+                    // 检查是否所有弹窗已生成完毕
+                    if (currentTrajectoryIndex >= heartTrajectory.length) {
+                        const allAppeared = heartWindows.every(w => w.state === 'holding');
+                        if (allAppeared) {
+                            animationState = 'holding';
+                            stateStartTime = timestamp;
+                        }
+                    }
+                    break;
+                    
+                case 'holding':
+                    // 停留阶段
+                    if (timestamp - stateStartTime >= CONFIG.timing.holdingDuration) {
+                        animationState = 'fading';
+                        stateStartTime = timestamp;
+                        // 开始所有爱心弹窗淡出
+                        heartWindows.forEach(w => w.startFade());
+                    }
+                    break;
+                    
+                case 'fading':
+                    // 爱心淡出
+                    const fadeElapsed = timestamp - stateStartTime;
+                    const fadeProgress = fadeElapsed / CONFIG.timing.fadeOutDuration;
+                    
+                    heartWindows.forEach(w => {
+                        w.opacity = Math.max(0, 1 - fadeProgress);
+                    });
+                    
+                    if (fadeProgress >= 1) {
+                        heartWindows = [];
+                        animationState = 'scattering';
+                        stateStartTime = timestamp;
+                        lastSpawnTime = timestamp;
+                    }
+                    break;
+                    
+                case 'scattering':
+                    // 满屏散落弹窗（每次生成3个弹窗以增加密度）
+                    if (timestamp - lastSpawnTime >= CONFIG.timing.scatterInterval) {
+                        for (let i = 0; i < 3; i++) {
+                            spawnScatterWindow(undefined, undefined, timestamp);
+                        }
+                        lastSpawnTime = timestamp;
+                    }
+                    
+                    // 检查散落弹窗生命周期
+                    scatterWindows.forEach(w => {
+                        const age = timestamp - w.birthTime;
+                        if (w.state === 'holding' && age >= CONFIG.timing.windowLifeStay) {
+                            w.startFade();
+                        }
+                    });
+                    
+                    // 清理已死亡的弹窗
+                    scatterWindows = scatterWindows.filter(w => w.state !== 'dead');
+                    
+                    // 检查是否结束
+                    if (timestamp - stateStartTime >= CONFIG.timing.scatterDuration) {
+                        animationState = 'ended';
+                        stateStartTime = timestamp;
+                    }
+                    break;
+                    
+                case 'ended':
+                    // 让所有散落弹窗淡出
+                    scatterWindows.forEach(w => {
+                        if (w.state !== 'fading' && w.state !== 'dead') {
+                            w.startFade();
+                        }
+                    });
+                    
+                    // 更新散落弹窗（继续淡出）
+                    scatterWindows.forEach(w => w.update(timestamp));
+                    
+                    // 清理已死亡的弹窗
+                    scatterWindows = scatterWindows.filter(w => w.state !== 'dead');
+                    
+                    // 显示"感谢观看"文字
+                    ctx.save();
+                    ctx.font = "bold 48px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+                    ctx.shadowBlur = 20;
+                    ctx.fillText('感谢观看 ❤️', canvas.width / 2, canvas.height / 2);
+                    ctx.restore();
+                    break;
+            }
+            
+            // 更新并绘制爱心弹窗
+            heartWindows.forEach(w => {
+                w.update(timestamp);
+                w.draw();
+            });
+            
+            // 更新并绘制散落弹窗
+            scatterWindows.forEach(w => {
+                w.update(timestamp);
+                w.draw();
+            });
+            
+            // 继续动画
+            requestAnimationFrame(animate);
+        }
+
+        // ========== 启动动画 ==========
+        requestAnimationFrame(animate);
+
+        /**
+         * ========================================
+         * 代码说明
+         * ========================================
+         * 
+         * 1. 启动提示：
+         *    - 页面加载后显示"双击屏幕开始"
+         *    - 半透明深色圆角矩形
+         * 
+         * 2. 弹窗绘制：
+         *    - 仿 Windows 系统窗口样式
+         *    - 标题栏、窗口控制按钮
+         *    - 主体区域显示祝福文字
+         *    - 圆角矩形、阴影效果
+         * 
+         * 3. 爱心轨迹：
+         *    - 使用心形参数方程计算
+         *    - 从底部尖角开始顺时针生成
+         *    - 40个弹窗组成爱心
+         * 
+         * 4. 动画阶段：
+         *    - forming: 沿轨迹逐个生成弹窗
+         *    - holding: 爱心成型后停留1.8秒
+         *    - fading: 爱心淡出0.6秒
+         *    - scattering: 满屏散落弹窗（每次生成3个）
+         *    - ended: 所有弹窗淡出，显示"感谢观看"
+         * 
+         * 5. 散落弹窗：
+         *    - 每200ms同时生成3个弹窗
+         *    - 停留0.3秒后淡出0.5秒
+         *    - 最大同时存在50个
+         * 
+         * 6. 交互功能：
+         *    - 双击开始动画
+         *    - 点击生成散落弹窗
+         *    - 重置按钮重新开始
+         */
+    </script>
+</body>
+</html>
